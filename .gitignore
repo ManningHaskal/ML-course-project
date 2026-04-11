@@ -31,3 +31,8 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+
+# Local / generated
+.DS_Store
+artifacts/
+preprocessed/
