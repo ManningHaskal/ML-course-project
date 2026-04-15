@@ -34,5 +34,14 @@ share/python-wheels/
 
 # Local / generated
 .DS_Store
+.pytest_cache/
+.coverage
+htmlcov/
 artifacts/
 preprocessed/
+
+# Kaggle / local copies (large; regenerate with wildlife-clean or download)
+test.csv
+train_clean.csv
+test_clean.csv
+submission.csv
