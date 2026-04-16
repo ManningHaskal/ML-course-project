@@ -45,3 +45,5 @@ test.csv
 train_clean.csv
 test_clean.csv
 submission.csv
+submission_binary.csv
+submission_binary_balanced.csv

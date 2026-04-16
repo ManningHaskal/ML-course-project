@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import balanced_accuracy_score, roc_auc_score
 from sklearn.model_selection import StratifiedKFold
 
 logger = logging.getLogger(__name__)
@@ -87,6 +87,38 @@ def optimize_blend(y_true: np.ndarray, oof_cb: np.ndarray, oof_lgb: np.ndarray) 
         if auc > best_auc:
             best_auc, best_w = auc, w
     return best_w, best_auc
+
+
+def optimize_binary_threshold(
+    y_true: np.ndarray,
+    y_proba: np.ndarray,
+    *,
+    grid_size: int = 401,
+    metric: str = "balanced_accuracy",
+) -> tuple[float, float]:
+    """Find threshold in [0, 1] maximizing requested binary classification metric."""
+    if grid_size < 2:
+        raise ValueError("grid_size must be >= 2")
+    if metric not in {"accuracy", "balanced_accuracy"}:
+        raise ValueError("metric must be one of: accuracy, balanced_accuracy")
+
+    y_true = np.asarray(y_true).astype(np.int32)
+    y_proba = np.asarray(y_proba, dtype=float)
+    best_thr = 0.5
+    best_score = -1.0
+
+    for thr in np.linspace(0.0, 1.0, grid_size):
+        pred = (y_proba >= thr).astype(np.int32)
+        if metric == "accuracy":
+            score = float((pred == y_true).mean())
+        else:
+            score = float(balanced_accuracy_score(y_true, pred))
+        # Tie-break toward threshold nearest to 0.5 for stability.
+        if score > best_score or (score == best_score and abs(thr - 0.5) < abs(best_thr - 0.5)):
+            best_score = score
+            best_thr = float(thr)
+
+    return best_thr, best_score
 
 
 def run_oof_ensemble(

@@ -13,7 +13,12 @@ import numpy as np
 import pandas as pd
 
 from wildlife_strikes.config import DEFAULT_SUBMISSION, DEFAULT_TEST_CLEAN, DEFAULT_TRAIN_CLEAN, ID_COL, TARGET_COL
-from wildlife_strikes.ensemble import fit_full_models, predict_test_blend, run_oof_ensemble
+from wildlife_strikes.ensemble import (
+    fit_full_models,
+    optimize_binary_threshold,
+    predict_test_blend,
+    run_oof_ensemble,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -43,6 +48,25 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--skip-oof", action="store_true", help="Skip OOF (faster; uses default blend 0.5)")
     p.add_argument("--max-train-rows", type=int, default=0, help="Debug: cap training rows (0=all)")
+    p.add_argument(
+        "--binary-output",
+        type=Path,
+        default=None,
+        help="Optional binary-label submission path (default: <output>_binary.csv)",
+    )
+    p.add_argument(
+        "--binary-threshold",
+        type=float,
+        default=None,
+        help="Binary threshold. If unset and OOF is enabled, auto-tunes using --binary-metric.",
+    )
+    p.add_argument(
+        "--binary-metric",
+        type=str,
+        default="balanced_accuracy",
+        choices=["balanced_accuracy", "accuracy"],
+        help="Metric to optimize when auto-selecting binary threshold from OOF predictions.",
+    )
     args = p.parse_args(argv)
 
     train, test, y, feature_cols = load_train_test(args.train, args.test)
@@ -54,9 +78,11 @@ def main(argv: list[str] | None = None) -> None:
 
     blend_w = 0.5
     meta = None
+    oof_cb = None
+    oof_secondary = None
 
     if not args.skip_oof:
-        _, _, meta = run_oof_ensemble(
+        oof_cb, oof_secondary, meta = run_oof_ensemble(
             train,
             y,
             feature_cols=feature_cols,
@@ -76,11 +102,39 @@ def main(argv: list[str] | None = None) -> None:
     out.to_csv(args.output, index=False)
     logger.info("Wrote %s (%d rows)", args.output, len(out))
 
+    binary_output = args.binary_output
+    if binary_output is None:
+        binary_output = args.output.with_name(f"{args.output.stem}_binary{args.output.suffix or '.csv'}")
+
+    if args.binary_threshold is not None:
+        bin_thr = float(args.binary_threshold)
+        if not (0.0 <= bin_thr <= 1.0):
+            raise SystemExit("--binary-threshold must be in [0, 1]")
+        bin_score = None
+    elif oof_cb is not None and oof_secondary is not None:
+        oof_blend = blend_w * oof_cb + (1.0 - blend_w) * oof_secondary
+        bin_thr, bin_score = optimize_binary_threshold(y, oof_blend, metric=args.binary_metric)
+        logger.info(
+            "OOF-optimized binary threshold=%.4f (%s=%.5f)",
+            bin_thr,
+            args.binary_metric,
+            bin_score,
+        )
+    else:
+        bin_thr, bin_score = 0.5, None
+        logger.info("Using default binary threshold=0.5 (OOF unavailable)")
+
+    out_bin = pd.DataFrame({ID_COL: test[ID_COL], TARGET_COL: (proba >= bin_thr).astype(np.int8)})
+    binary_output.parent.mkdir(parents=True, exist_ok=True)
+    out_bin.to_csv(binary_output, index=False)
+    logger.info("Wrote %s (%d rows, threshold=%.4f)", binary_output, len(out_bin), bin_thr)
+
     bundle = {
         "catboost": cb,
         "secondary_model": lgbm,
         "cat_columns": cat_cols,
         "blend_weight_catboost": blend_w,
+        "binary_threshold": bin_thr,
         "feature_cols": feature_cols,
         "oof_meta": meta.__dict__ if meta else None,
     }
@@ -94,6 +148,9 @@ def main(argv: list[str] | None = None) -> None:
             {
                 "oof_meta": meta.__dict__ if meta else None,
                 "blend_weight_catboost": blend_w,
+                "binary_threshold": bin_thr,
+                "oof_threshold_metric": args.binary_metric,
+                "oof_threshold_metric_score": bin_score,
                 "n_train": int(len(train)),
                 "n_test": int(len(test)),
                 "n_features": len(feature_cols),

@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 from sklearn.metrics import roc_auc_score
 
-from wildlife_strikes.ensemble import categorical_column_names, optimize_blend
+from wildlife_strikes.ensemble import categorical_column_names, optimize_binary_threshold, optimize_blend
 
 
 def test_optimize_blend_finds_best_weight():
@@ -30,6 +30,21 @@ def test_categorical_column_names_includes_object_and_bool():
     )
     cats = categorical_column_names(df, ["n", "o", "b"])
     assert set(cats) == {"o", "b"}
+
+
+def test_optimize_binary_threshold_returns_valid_threshold():
+    y = np.array([0, 0, 0, 1, 1, 1], dtype=np.int32)
+    p = np.array([0.05, 0.2, 0.4, 0.6, 0.8, 0.95], dtype=float)
+    thr, score = optimize_binary_threshold(y, p, grid_size=201, metric="balanced_accuracy")
+    assert 0.0 <= thr <= 1.0
+    assert score == pytest.approx(1.0)
+
+
+def test_optimize_binary_threshold_accuracy_metric():
+    y = np.array([0, 0, 1, 1], dtype=np.int32)
+    p = np.array([0.1, 0.3, 0.7, 0.9], dtype=float)
+    _, score = optimize_binary_threshold(y, p, metric="accuracy")
+    assert score == pytest.approx(1.0)
 
 
 @pytest.mark.parametrize("dtype", ["boolean", "bool"])

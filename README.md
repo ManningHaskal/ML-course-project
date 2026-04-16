@@ -71,11 +71,36 @@ wildlife-clean
 wildlife-train --output submission.csv
 ```
 
+`wildlife-train` now also writes a binary-label companion file by default:
+`submission_binary.csv`. When OOF is enabled, the binary cutoff is auto-tuned on
+OOF predictions for the selected metric (default: **balanced accuracy**).
+
+**Convert probability submission to binary labels (if required):**
+
+```bash
+wildlife-binarize --input submission.csv --output submission_binary.csv --threshold 0.5
+```
+
 Useful flags:
 
 - `--skip-oof` — skip OOF and use default blend `0.5` (faster, worse calibration of \(w\)).
 - `--n-splits 5` — number of stratified folds for OOF.
 - `--max-train-rows N` — cap rows for debugging.
+- `--binary-output path.csv` — where to write binary predictions.
+- `--binary-threshold 0.5` — override threshold (otherwise OOF-optimized when available).
+- `--binary-metric balanced_accuracy` — threshold tuning objective (`balanced_accuracy` or `accuracy`).
+
+If you already have a fitted bundle and probability submission, you can retune
+the cutoff without retraining:
+
+```bash
+wildlife-retune-threshold \
+  --train train_clean.csv \
+  --submission submission.csv \
+  --bundle artifacts/ensemble_bundle.joblib \
+  --output submission_binary_balanced.csv \
+  --metric balanced_accuracy
+```
 
 Artifacts:
 

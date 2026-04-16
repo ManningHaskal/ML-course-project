@@ -18,6 +18,7 @@ def test_train_cli_writes_submission(tmp_path: Path, tiny_raw_frames):
     train_p = tmp_path / "train_clean.csv"
     test_p = tmp_path / "test_clean.csv"
     out_p = tmp_path / "sub.csv"
+    out_bin_p = tmp_path / "sub_binary.csv"
     bundle_p = tmp_path / "bundle.joblib"
 
     train_clean.to_csv(train_p, index=False)
@@ -31,6 +32,8 @@ def test_train_cli_writes_submission(tmp_path: Path, tiny_raw_frames):
             str(test_p),
             "--output",
             str(out_p),
+            "--binary-output",
+            str(out_bin_p),
             "--bundle",
             str(bundle_p),
             "--skip-oof",
@@ -43,5 +46,7 @@ def test_train_cli_writes_submission(tmp_path: Path, tiny_raw_frames):
     assert "INDEX_NR" in sub.columns and "INDICATED_DAMAGE" in sub.columns
     assert len(sub) == len(test_clean)
     assert sub["INDICATED_DAMAGE"].between(0, 1).all()
+    sub_bin = pd.read_csv(out_bin_p)
+    assert sorted(sub_bin["INDICATED_DAMAGE"].unique().tolist()) in ([0], [1], [0, 1])
     assert bundle_p.is_file()
     assert bundle_p.with_suffix(".json").is_file()
